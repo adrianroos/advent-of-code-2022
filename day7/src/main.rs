@@ -1,21 +1,19 @@
 use std::{
-    cell::RefCell,
     collections::HashMap,
     io::{self, BufRead},
     ops::Deref,
-    rc::Rc,
 };
 
 #[derive(Default, Debug)]
 struct Dir {
-    dirs: HashMap<String, Rc<RefCell<Dir>>>,
+    dirs: HashMap<String, Dir>,
     files: HashMap<String, usize>,
 }
 
 impl Dir {
     fn size(&self) -> usize {
         let files: usize = self.files.values().sum();
-        let dirs: usize = self.dirs.values().map(|x| x.borrow().size()).sum();
+        let dirs: usize = self.dirs.values().map(|x| x.size()).sum();
         files + dirs
     }
 
@@ -23,7 +21,7 @@ impl Dir {
         let mut sizes = self
             .dirs
             .iter()
-            .flat_map(|(n, d)| d.borrow().sizes(n.to_owned()))
+            .flat_map(|(n, d)| d.sizes(n.to_owned()))
             .collect::<Vec<_>>();
         sizes.push((name, self.size()));
         sizes
@@ -36,8 +34,9 @@ enum Line {
     DirEnt(DirEnt),
 }
 
-impl From<&str> for Line {
-    fn from(s: &str) -> Self {
+impl<T: Deref<Target = str>> From<T> for Line {
+    fn from(s: T) -> Self {
+        let s = &*s;
         if let Some(dir) = s.strip_prefix("$ cd ") {
             Line::Cd(match dir {
                 "/" => Cd::Root,
@@ -78,44 +77,50 @@ fn main() {
     println!("part2: {}", part2(&root));
 }
 
-fn parse<'a, T: Deref<Target = str>>(lines: impl Iterator<Item = T>) -> Dir {
-    let root = Rc::new(RefCell::new(Dir::default()));
-    let mut stack = Vec::new();
-    let mut cur = Rc::clone(&root);
+enum ParseResult {
+    Up,
+    Root,
+    Eof,
+}
 
-    for line in lines {
-        match Line::from(&*line) {
+fn parse_into(
+    dir: &mut Dir,
+    lines: &mut impl Iterator<Item = impl Deref<Target = str>>,
+) -> ParseResult {
+    while let Some(line) = lines.next() {
+        match Line::from(line) {
             Line::Cd(cd) => match cd {
-                Cd::Root => {
-                    stack.clear();
-                    cur = root.clone();
-                }
-                Cd::Up => {
-                    cur = stack.pop().unwrap_or_else(|| Rc::clone(&root));
-                }
+                Cd::Root => return ParseResult::Root,
+                Cd::Up => return ParseResult::Up,
                 Cd::Into(path) => {
-                    let dir = {
-                        let mut cur_mut = cur.borrow_mut();
-                        let dir = cur_mut.dirs.entry(path).or_default();
-                        Rc::clone(dir)
-                    };
-
-                    stack.push(cur);
-                    cur = dir;
+                    let mut inner = dir.dirs.entry(path).or_default();
+                    match parse_into(&mut inner, lines) {
+                        ParseResult::Root => return ParseResult::Root,
+                        ParseResult::Eof => return ParseResult::Eof,
+                        ParseResult::Up => (),
+                    }
                 }
             },
             Line::Ls => (),
             Line::DirEnt(d) => match d {
                 DirEnt::Dir(_) => (),
                 DirEnt::File { size, name } => {
-                    cur.borrow_mut().files.insert(name, size);
+                    dir.files.insert(name, size);
                 }
             },
         }
     }
-    stack.clear();
-    drop(cur);
-    Rc::try_unwrap(root).unwrap().into_inner()
+    ParseResult::Eof
+}
+
+fn parse(lines: impl Iterator<Item = impl Deref<Target = str>>) -> Dir {
+    let mut root = Dir::default();
+    let mut lines = lines;
+    loop {
+        if let ParseResult::Eof = parse_into(&mut root, &mut lines) {
+            return root;
+        }
+    }
 }
 
 fn part1(root: &Dir) -> usize {
