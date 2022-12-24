@@ -1,6 +1,6 @@
 use std::{
     cmp::max,
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     io::{self, BufRead},
     ops::Deref,
 };
@@ -32,6 +32,15 @@ impl Blueprint {
             r_obsidian: i32,
             r_geode: i32,
         }
+        impl Node {
+            fn advance(self: &mut Self, dt: i32) {
+                self.t += dt;
+                self.ore += self.r_ore * dt;
+                self.clay += self.r_clay * dt;
+                self.obsidian += self.r_obsidian * dt;
+                self.geode += self.r_geode * dt;
+            }
+        }
 
         let mut start = Node::default();
         start.r_ore = 1;
@@ -42,62 +51,86 @@ impl Blueprint {
 
         let mut seen = HashSet::new();
         let mut q = vec![start];
-        while let Some(mut it) = q.pop() {
+        let mut best = 0;
+        while let Some(it) = q.pop() {
             if seen.contains(&it) {
                 continue;
             }
             seen.insert(it.clone());
-            it.t += 1;
-            let b_ore = it.ore >= self.ore && it.r_ore < max_ore;
-            let b_clay = it.ore >= self.clay_ore && it.r_clay < max_clay;
-            let b_obsidian = it.ore >= self.obsidian_ore && it.clay >= self.obsidian_clay && it.r_obsidian < max_obsidian;
-            let b_geode = it.ore >= self.geode_ore && it.obsidian >= self.geode_obsidian;
-            it.ore += it.r_ore;
-            it.clay += it.r_clay;
-            it.obsidian += it.r_obsidian;
-            it.geode += it.r_geode;
-            if (it.t == minutes) {
-                seen.insert(it);
+            if it.t == minutes {
+                best = max(best, it.geode)
+            }
+            if it.t >= minutes {
                 continue;
             }
-            if b_geode {
-                let mut it = it.clone();
-                it.r_geode += 1;
-                it.ore -= self.geode_ore;
-                it.obsidian -= self.geode_obsidian;
-                q.push(it);
-            } else {
-                if b_ore {
-                    let mut it = it.clone();
-                    it.r_ore += 1;
-                    it.ore -= self.ore;
-                    q.push(it);
-                }
-                if b_clay {
-                    let mut it = it.clone();
-                    it.r_clay += 1;
-                    it.ore -= self.clay_ore;
-                    q.push(it);
-                }
-                if b_obsidian {
-                    let mut it = it.clone();
-                    it.r_obsidian += 1;
-                    it.ore -= self.obsidian_ore;
-                    it.clay -= self.obsidian_clay;
-                    q.push(it);
-                }
-                if !(b_ore && b_clay && b_obsidian) {
-                    q.push(it);
+            if it.geode + (minutes - it.t) * it.r_geode + (minutes - it.t) * (minutes - it.t + 1) / 2 < best {
+                continue;
+            }
+            if it.r_obsidian > 0 {
+                let missing_ore = self.geode_ore - it.ore;
+                let missing_obsidian = self.geode_obsidian - it.obsidian;
+                let dt = max(0, max((missing_ore + it.r_ore - 1) / it.r_ore, (missing_obsidian + it.r_obsidian - 1) / it.r_obsidian)) + 1;
+                assert!(dt >= 1);
+                let mut next = it.clone();
+                next.advance(dt);
+                next.r_geode += 1;
+                next.ore -= self.geode_ore;
+                next.obsidian -= self.geode_obsidian;
+                if next.t <= minutes {
+                    q.push(next);
                 }
             }
-            
+            if it.r_clay > 0 && it.r_obsidian < max_obsidian {
+                let missing_ore = self.obsidian_ore - it.ore;
+                let missing_clay = self.obsidian_clay - it.clay;
+                let dt = max(0, max((missing_ore + it.r_ore - 1) / it.r_ore, (missing_clay + it.r_clay - 1) / it.r_clay)) + 1;
+                assert!(dt >= 1);
+                let mut next = it.clone();
+                next.advance(dt);
+                next.r_obsidian += 1;
+                next.ore -= self.obsidian_ore;
+                next.clay -= self.obsidian_clay;
+                if next.t <= minutes {
+                    q.push(next);
+                }
+            }
+            if it.r_clay < max_clay {
+                let missing_ore = self.clay_ore - it.ore;
+                let dt = max(0, (missing_ore + it.r_ore - 1) / it.r_ore) + 1;
+                assert!(dt >= 1);
+                let mut next = it.clone();
+                next.advance(dt);
+                next.r_clay += 1;
+                next.ore -= self.clay_ore;
+                if next.t <= minutes {
+                    q.push(next);
+                }
+            }
+            if it.r_ore < max_ore {
+                let missing_ore = self.ore - it.ore;
+                let dt = max(0, (missing_ore + it.r_ore - 1) / it.r_ore) + 1;
+                assert!(dt >= 1);
+                let mut next = it.clone();
+                next.advance(dt);
+                next.r_ore += 1;
+                next.ore -= self.ore;
+                if next.t <= minutes {
+                    q.push(next);
+                }
+            }
+            {
+                let mut next = it;
+                next.advance(minutes - next.t);
+                q.push(next);
+            }
         }
         let q = seen.iter()
             .filter(|&x| x.t == minutes)
             .max_by_key(|&x| (x.geode, x.obsidian, x.clay, x.ore))
             .unwrap();
-        println!("{:?}: {q:?}", &self);
-        q.geode
+        println!("{:?}: {q:?}, best: {best}", &self);
+        q.geode;
+        best
     }
 }
 
@@ -158,6 +191,6 @@ Blueprint 2: Each ore robot costs 2 ore. Each clay robot costs 3 ore. Each obsid
     #[test]
     fn test_part2() {
         let root = parse(sample());
-        assert_eq!(part2(&root), 36);
+        assert_eq!(part2(&root), 56 * 62);
     }
 }
