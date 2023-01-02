@@ -1,12 +1,9 @@
-#![allow(dead_code)]
-
 use core::panic;
 use std::{
     fmt::{Debug, Display},
     io::{self, BufRead},
-    iter::{repeat, Peekable},
-    mem::{self},
-    ops::{Index, IndexMut, Range},
+    iter::Peekable,
+    ops::{Index, IndexMut},
 };
 
 struct Grid<T> {
@@ -19,20 +16,6 @@ impl<T> Grid<T> {
         Grid {
             dim,
             vec: Vec::new(),
-        }
-    }
-
-    fn clone_with<U: Copy>(&self, u: U) -> Grid<U> {
-        Grid {
-            dim: self.dim,
-            vec: vec![u; self.vec.len()],
-        }
-    }
-
-    fn clone_map<U>(&self, f: impl Fn(&T) -> U) -> Grid<U> {
-        Grid {
-            dim: self.dim,
-            vec: self.vec.iter().map(f).collect::<Vec<_>>(),
         }
     }
 
@@ -49,58 +32,9 @@ impl<T> Grid<T> {
     fn height(&self) -> usize {
         self.dim.1
     }
-
-    fn neighbors(&self, (x, y): (usize, usize)) -> Vec<(usize, usize)> {
-        let mut v = Vec::new();
-        if x > 0 {
-            v.push((x - 1, y));
-        }
-        if y > 0 {
-            v.push((x, y - 1));
-        }
-        if x < self.dim.0 - 1 {
-            v.push((x + 1, y));
-        }
-        if y < self.dim.1 - 1 {
-            v.push((x, y + 1));
-        }
-        v
-    }
 }
 
 impl<T: Clone> Grid<T> {
-    fn grow_to_height(&mut self, height: usize, value: T) {
-        if height > self.dim.1 {
-            self.vec
-                .extend(repeat(value).take((height - self.dim.1) * self.dim.0));
-            self.dim.1 = height;
-        }
-    }
-
-    fn grow_to_width(&mut self, width: usize, value: T) {
-        if width > self.dim.0 {
-            let vec = mem::take(&mut self.vec);
-
-            for cs in vec.chunks_exact(self.dim.0) {
-                self.vec.extend(
-                    cs.iter()
-                        .cloned()
-                        .chain(repeat(value.clone()).take(width - self.dim.0)),
-                );
-            }
-            self.dim.0 = width;
-        }
-    }
-
-    fn clone_y_range(&self, ys: Range<usize>) -> Grid<T> {
-        let mut result = Grid::new(self.dim);
-        result.dim.1 = ys.len();
-        result
-            .vec
-            .extend_from_slice(&self.vec[ys.start * self.width()..ys.end * self.width()]);
-        result
-    }
-
     fn parse(lines: impl Iterator<Item = impl AsRef<str>>, map: impl Fn(char) -> T) -> Grid<T> {
         let lines = lines.collect::<Vec<_>>();
         let mut res = Grid::new((0, 0));
